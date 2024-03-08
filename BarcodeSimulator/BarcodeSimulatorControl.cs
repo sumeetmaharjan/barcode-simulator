@@ -1,15 +1,18 @@
-﻿using System;
+using System;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Windows.Forms;
+using static System.Windows.Forms.LinkLabel;
 
 namespace BarcodeSimulator
 {
 
     public partial class BarcodeSimulatorControl : Form
     {
+        private readonly string FileName = "codes.txt";
 
         public BarcodeSimulatorControl()
         {
@@ -20,7 +23,7 @@ namespace BarcodeSimulator
         {
             // setup a new Hotkey to watch for Windows+Z
             // this could/should be configurable on the form
-            var hk = new Hotkey(Keys.Z, shift: false, control: false, alt: false, windows: true);
+            var hk = new Hotkey(Keys.U, shift: false, control: true, alt: true, windows: false);
             hk.Pressed += HotkeyPressed;
             hk.Register(this);
 
@@ -28,18 +31,55 @@ namespace BarcodeSimulator
             hotkeyTextBox.Text = hk.ToString();
 
             // list all available keys in the 'ends with' drop down
-            Enum.GetNames(typeof (Keys)).ToList().ForEach(k => endsWithComboBox.Items.Add(k));
+            Enum.GetNames(typeof(Keys)).ToList().ForEach(k => endsWithComboBox.Items.Add(k));
+
+            endsWithComboBox.SelectedItem = endsWithComboBox.Items[11];
 
             // focus on the text box for adding new string
             ActiveControl = newStringTextBox;
 
             SetupToolTips();
+            btnTriggerAfterDelay.Text = "Trigger after " + triggerDelay.Value + " seconds";
+            LoadCodesFromFile();
+
+            // itemsListView.SelectedIndexChanged += ItemsListView_SelectedIndexChanged;
+
+        }
+
+        private void ItemsListView_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            var temp = (ListView)sender;
+            if (temp.Focused)
+            {
+                var focusedItem = temp.SelectedItems[0].Index;
+
+
+            }
+            //var tee = temp.SelectedIndices[0];
+            Console.WriteLine();
+        }
+
+        private void LoadCodesFromFile()
+        {
+            try
+            {
+                var codes = File.ReadAllLines(FileName);
+                foreach (var code in codes)
+                {
+                    if (string.IsNullOrEmpty(code)) continue;
+                    itemsListView.Items.Add(new ListViewItem(new[] { code, Barcode.GetTypeName(code) }));
+                }
+            }
+            catch (FileNotFoundException ex)
+            {
+                Console.WriteLine(ex.Message);
+            }
         }
 
         private void SetupToolTips()
         {
-            var tt = new ToolTip {InitialDelay = 500, ReshowDelay = 500, ShowAlways = true};
-            
+            var tt = new ToolTip { InitialDelay = 500, ReshowDelay = 500, ShowAlways = true };
+
             tt.SetToolTip(delayNumeric, "Delay in milliseconds between each keypress when sending a barcode.");
             tt.SetToolTip(hotkeyTextBox, "Activation key sequence. Press " + hotkeyTextBox.Text + " to send the next barcode.");
             tt.SetToolTip(endsWithComboBox, "Optionally ends each barcode sending with this key.");
@@ -60,10 +100,12 @@ namespace BarcodeSimulator
             if (endsWithComboBox.SelectedIndex > 0)
                 Enum.TryParse(endsWithComboBox.SelectedItem.ToString(), out endKey);
 
+            Thread.Sleep(2000);
+
             var s = GetNextCode();
 
             // do the delayed key sending in a separate thread so we don't hang the window
-            ThreadStart starter = () => StartSending(s, (int) delayNumeric.Value, endKey);
+            ThreadStart starter = () => StartSending(s, (int)delayNumeric.Value, endKey);
             var t = new Thread(starter) { Name = "Sending keys " + s };
             t.Start();
         }
@@ -81,7 +123,7 @@ namespace BarcodeSimulator
 
             // if configured, send an 'end' key to signal that we're at the end of the barcode
             if (endKey != Keys.None)
-                SendKeys.SendWait("{" + Enum.GetName(typeof (Keys), endKey) + "}");
+                SendKeys.SendWait("{" + Enum.GetName(typeof(Keys), endKey) + "}");
 
             // beep!
             System.Media.SystemSounds.Beep.Play();
@@ -130,10 +172,23 @@ namespace BarcodeSimulator
 
             var code = newStringTextBox.Text;
 
-            
             itemsListView.Items.Add(new ListViewItem(new[] { code, Barcode.GetTypeName(code) }));
-            itemsListView.Columns[0].AutoResize(ColumnHeaderAutoResizeStyle.ColumnContent);
-            
+
+
+            try
+            {
+                using (FileStream fs = new FileStream(FileName, FileMode.OpenOrCreate, FileAccess.ReadWrite))
+                {
+                    StreamWriter tw = new StreamWriter(fs);
+                    foreach (ListViewItem item in itemsListView.Items)
+                    {
+                        tw.WriteLine(item.Text);
+                    }
+                    tw.Flush();
+                }
+            }
+            catch { }
+
             newStringTextBox.Clear();
         }
 
@@ -168,7 +223,35 @@ namespace BarcodeSimulator
             if (newCodeTypeLabel.Text == type)
                 return;
 
-            newCodeTypeLabel.Text = type;
+            //newCodeTypeLabel.Text = type;
+
+        }
+
+        private void btnTriggerAfterDelay_Click(object sender, EventArgs e)
+        {
+            Thread.Sleep((int)(triggerDelay.Value * 1000));
+            if (itemsListView.Items.Count == 0)
+            {
+                MessageBox.Show("You have to add some strings to the list first.", "Fail", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            var endKey = Keys.None;
+
+            if (endsWithComboBox.SelectedIndex > 0)
+                Enum.TryParse(endsWithComboBox.SelectedItem.ToString(), out endKey);
+
+            var s = GetNextCode();
+
+            // do the delayed key sending in a separate thread so we don't hang the window
+            ThreadStart starter = () => StartSending(s, (int)delayNumeric.Value, endKey);
+            var t = new Thread(starter) { Name = "Sending keys " + s };
+            t.Start();
+        }
+
+        private void triggerDelay_ValueChanged(object sender, EventArgs e)
+        {
+            btnTriggerAfterDelay.Text = "Trigger after " + triggerDelay.Value + " seconds";
         }
     }
 }
