@@ -17,6 +17,7 @@ jobs:
     runs-on: windows-latest 
 
     env:
+      OutputPath: ..\Output${{ matrix.configuration }}
       Solution_Name: BarcodeSimulator.sln
       
     steps:
